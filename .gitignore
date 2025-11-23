@@ -1,0 +1,47 @@
+# --- Python & Runtime ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# --- Virtual Environments ---
+env/
+venv/
+.venv/
+.env_folder/
+
+# --- Environment Variables & Secrets (CRITICAL) ---
+.env
+.env.local
+.env.*
+!.env.example
+
+# --- Google Cloud & Credentials (CRITICAL) ---
+service_account.json
+*service_account*.json
+gcp_keys/
+*.pem
+
+# --- IDE Settings (VS Code, PyCharm, etc) ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Operating System Files ---
+.DS_Store
+Thumbs.db
+
+# --- Logs & Databases ---
+*.log
+*.sqlite3
+
+# --- Project Specific (Temporary generated media) ---
+# If you run tests that generate files locally, ignore them
+*.png
+*.jpg
+*.jpeg
+*.mp4
+temp/
+outputs/
