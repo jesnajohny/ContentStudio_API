@@ -29,8 +29,6 @@ class SupabaseService:
             "updated_date": datetime.now(timezone.utc).isoformat()
         }
 
-        print(f'update data : {data}')
-
         try:
             # .upsert() will insert or update based on the primary key (likely template_name or an id)
             response = self.client.table("templates").upsert(data, on_conflict="template_name, category, product_type").execute()
