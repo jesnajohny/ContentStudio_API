@@ -7,6 +7,7 @@ from google.genai import types
 from app.core.config import get_settings
 from app.services.storage_service import StorageService
 from app.services.supabase_service import SupabaseService
+from urllib.parse import urlparse
 
 settings = get_settings()
 
@@ -65,11 +66,11 @@ class VertexGenerator:
             # Save the GENERATED asset to GCS and Supabase
             url = self._save_asset(data, user, asset_type, "generated", prefix, ext, mime)
             
-            response = {"status": "completed", "url": url}
+            
 
-            # Encode image to base64 and include in response for frontend display
-            if mime.startswith("image"):
-                response["image"] = base64.b64encode(data).decode("utf-8")
+            parsed = urlparse(url)
+            
+            response = {"status": "completed", "base_url": url, "signed_url": self.storage.generate_signed_url(parsed.path.lstrip("/").split("/", 1)[1])}
 
             return response
         except Exception as e:

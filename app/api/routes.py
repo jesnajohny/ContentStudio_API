@@ -3,6 +3,7 @@ from app.services.vertex_service import VertexGenerator
 from app.services.supabase_service import SupabaseService
 from app.services.storage_service import StorageService
 from functools import lru_cache
+from urllib.parse import urlparse
 
 router = APIRouter()
 
@@ -107,7 +108,7 @@ async def upsert_template(
     return {"status": "success", "data": result}
 
 @router.get("/templates/filters")
-async def get_template_filters(
+def get_template_filters(
     supabase: SupabaseService = Depends(get_supabase_service)
 ):
     # This now returns the dictionary structure: {"Category": ["Product1", "Product2"]}
@@ -135,18 +136,13 @@ async def list_templates(
     # 2. Process each template to fetch and encode the image
     results = []
     for template in templates:
-        # Copy template to avoid mutating the original if cached somewhere (good practice)
+        
+        # # Copy template to avoid mutating the original if cached somewhere (good practice)
         temp_data = template.copy()
         
         image_url = temp_data.get("image_url")
-        if image_url:
-            # Fetch base64 string
-            b64_image = storage.download_image_as_base64(image_url)
-            if b64_image:
-                temp_data["image_base64"] = b64_image
-            else:
-                temp_data["image_base64"] = None # Or handle error/placeholder
-        
+        parsed = urlparse(image_url)
+        temp_data["image_url"] = storage.generate_signed_url(parsed.path.lstrip("/").split("/", 1)[1])        
         results.append(temp_data)
         
     return results

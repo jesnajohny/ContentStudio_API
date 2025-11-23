@@ -62,3 +62,7 @@ class StorageService:
         except Exception as e:
             print(f"❌ GCS Download Error for {image_url}: {e}")
             return None
+
+    def generate_signed_url(self, blob_name):
+        blob = self.client.bucket(self.bucket_name).blob(blob_name)
+        return blob.generate_signed_url(version="v4", expiration=3600)    
