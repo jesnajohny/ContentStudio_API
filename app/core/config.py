@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     # Storage Config
     GCS_BUCKET_NAME: str
     
+    # Supabase Config
+    SUPABASE_URL: str
+    SUPABASE_KEY: str
+    
     # Model Config
     IMAGE_MODEL_ID: str = "gemini-2.5-flash-image"
     VIDEO_MODEL_ID: str = "gemini-2.5-flash-image"
