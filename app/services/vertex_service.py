@@ -1,4 +1,5 @@
 import os
+import base64
 from google import genai
 from google.genai import types
 from app.core.config import get_settings
@@ -26,11 +27,18 @@ class VertexGenerator:
     def _process_media(self, data: bytes, prefix: str, ext: str, mime: str) -> dict:
         try:
             url = self.storage.upload_bytes(data, prefix, ext, mime)
-            return {"status": "completed", "url": url}
+            #response = {"status": "completed", "url": url}
+            response = {"status": "completed"}
+
+            # # Encode image to base64 and include in response
+            if mime.startswith("image"):
+                response["image"] = base64.b64encode(data).decode("utf-8")
+
+            return response
         except Exception as e:
             return {"status": "failed", "error": str(e)}
 
-    def generate_text_to_image(self, prompt: str, aspect_ratio: str) -> dict:
+    def generate_text_to_image(self, prompt: str, aspect_ratio: str, user: str) -> dict:
         if not self.client: return {"status": "failed", "error": "Client unavailable"}
         
         try:
@@ -48,13 +56,13 @@ class VertexGenerator:
                 for part in response.candidates[0].content.parts:
                     if part.inline_data:
                         return self._process_media(
-                            part.inline_data.data, "t2i", "png", "image/png"
+                            part.inline_data.data, f"{user}/t2i", "png", "image/png"
                         )
             return {"status": "failed", "error": "No image generated"}
         except Exception as e:
             return {"status": "failed", "error": str(e)}
 
-    def generate_image_to_image(self, image_bytes: bytes, prompt: str) -> dict:
+    def generate_image_to_image(self, image_bytes: bytes, prompt: str, user: str) -> dict:
         if not self.client: return {"status": "failed", "error": "Client unavailable"}
 
         try:
@@ -73,13 +81,13 @@ class VertexGenerator:
                 for part in response.candidates[0].content.parts:
                     if part.inline_data:
                         return self._process_media(
-                            part.inline_data.data, "i2i", "png", "image/png"
+                            part.inline_data.data, f"{user}/i2i", "png", "image/png"
                         )
             return {"status": "failed", "error": "No image generated"}
         except Exception as e:
             return {"status": "failed", "error": str(e)}
 
-    def generate_image_to_video(self, image_bytes: bytes, prompt: str) -> dict:
+    def generate_image_to_video(self, image_bytes: bytes, prompt: str, user: str) -> dict:
         if not self.client: return {"status": "failed", "error": "Client unavailable"}
         
         try:
@@ -95,7 +103,7 @@ class VertexGenerator:
 
             if hasattr(result, 'generated_videos'):
                 video_bytes = result.generated_videos[0].video.video_bytes
-                return self._process_media(video_bytes, "veo", "mp4", "video/mp4")
+                return self._process_media(video_bytes, "f{user}/vi", "mp4", "video/mp4")
             
             return {"status": "failed", "error": "No video generated"}
         except Exception as e:
