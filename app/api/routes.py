@@ -105,3 +105,48 @@ async def upsert_template(
         raise HTTPException(status_code=500, detail=result["error"])
     
     return {"status": "success", "data": result}
+
+@router.get("/templates/filters")
+async def get_template_filters(
+    supabase: SupabaseService = Depends(get_supabase_service)
+):
+    # This now returns the dictionary structure: {"Category": ["Product1", "Product2"]}
+    result = supabase.get_template_filters()
+    
+    if "error" in result:
+        raise HTTPException(status_code=500, detail=result["error"])
+    
+    return result
+
+@router.get("/templates/list")
+async def list_templates(
+    category: str,
+    product_type: str,
+    supabase: SupabaseService = Depends(get_supabase_service),
+    service: VertexGenerator = Depends(get_generator),
+    storage: StorageService = Depends(get_storage_service)
+):
+    # 1. Fetch metadata from Supabase
+    templates = supabase.get_templates(category, product_type)
+    
+    if isinstance(templates, dict) and "error" in templates:
+         raise HTTPException(status_code=500, detail=templates["error"])
+
+    # 2. Process each template to fetch and encode the image
+    results = []
+    for template in templates:
+        # Copy template to avoid mutating the original if cached somewhere (good practice)
+        temp_data = template.copy()
+        
+        image_url = temp_data.get("image_url")
+        if image_url:
+            # Fetch base64 string
+            b64_image = storage.download_image_as_base64(image_url)
+            if b64_image:
+                temp_data["image_base64"] = b64_image
+            else:
+                temp_data["image_base64"] = None # Or handle error/placeholder
+        
+        results.append(temp_data)
+        
+    return results

@@ -1,9 +1,12 @@
 import os
 import base64
+import io
+from PIL import Image
 from google import genai
 from google.genai import types
 from app.core.config import get_settings
 from app.services.storage_service import StorageService
+from app.services.supabase_service import SupabaseService
 
 settings = get_settings()
 
@@ -19,18 +22,52 @@ class VertexGenerator:
                 location=settings.GOOGLE_CLOUD_LOCATION
             )
             self.storage = StorageService()
+            self.supabase = SupabaseService()
             print(f"✅ Vertex AI Client initialized.")
         except Exception as e:
             print(f"❌ Failed to initialize Vertex AI: {e}")
             self.client = None
 
-    def _process_media(self, data: bytes, prefix: str, ext: str, mime: str) -> dict:
+    def _save_asset(self, data: bytes, user_id: str, asset_type: str, source: str, prefix: str, ext: str, mime: str) -> str:
+        """
+        Helper to upload file to GCS, extract metadata, and save info to Supabase.
+        """
+        # 1. Upload to GCS
         try:
             url = self.storage.upload_bytes(data, prefix, ext, mime)
-            #response = {"status": "completed", "url": url}
-            response = {"status": "completed"}
+        except Exception as e:
+            print(f"❌ Failed to upload asset to storage: {e}")
+            raise e
 
-            # # Encode image to base64 and include in response
+        # 2. Extract Metadata
+        metadata = {"size_bytes": len(data), "format": ext, "mime": mime}
+        if asset_type == "image":
+            try:
+                with Image.open(io.BytesIO(data)) as img:
+                    metadata["width"] = img.width
+                    metadata["height"] = img.height
+            except Exception as e:
+                print(f"⚠️ Failed to extract image metadata: {e}")
+
+        # 3. Insert into Supabase
+        self.supabase.insert_asset(
+            user_id=user_id,
+            asset_type=asset_type,
+            source=source,
+            storage_path=url,
+            metadata=metadata
+        )
+        
+        return url
+
+    def _process_media(self, data: bytes, prefix: str, ext: str, mime: str, user: str, asset_type: str) -> dict:
+        try:
+            # Save the GENERATED asset to GCS and Supabase
+            url = self._save_asset(data, user, asset_type, "generated", prefix, ext, mime)
+            
+            response = {"status": "completed", "url": url}
+
+            # Encode image to base64 and include in response for frontend display
             if mime.startswith("image"):
                 response["image"] = base64.b64encode(data).decode("utf-8")
 
@@ -55,8 +92,9 @@ class VertexGenerator:
             if response.candidates and response.candidates[0].content.parts:
                 for part in response.candidates[0].content.parts:
                     if part.inline_data:
+                        # Pass user and asset_type="image"
                         return self._process_media(
-                            part.inline_data.data, f"{user}/t2i", "png", "image/png"
+                            part.inline_data.data, f"{user}/t2i", "png", "image/png", user, "image"
                         )
             return {"status": "failed", "error": "No image generated"}
         except Exception as e:
@@ -66,6 +104,10 @@ class VertexGenerator:
         if not self.client: return {"status": "failed", "error": "Client unavailable"}
 
         try:
+            # 1. Save Input Asset (Uploaded)
+            self._save_asset(image_bytes, user, "image", "uploaded", f"{user}/inputs", "png", "image/png")
+
+            # 2. Generate Content
             image_part = types.Part(
                 inline_data=types.Blob(mime_type="image/png", data=image_bytes)
             )
@@ -81,7 +123,7 @@ class VertexGenerator:
                 for part in response.candidates[0].content.parts:
                     if part.inline_data:
                         return self._process_media(
-                            part.inline_data.data, f"{user}/i2i", "png", "image/png"
+                            part.inline_data.data, f"{user}/i2i", "png", "image/png", user, "image"
                         )
             return {"status": "failed", "error": "No image generated"}
         except Exception as e:
@@ -91,6 +133,10 @@ class VertexGenerator:
         if not self.client: return {"status": "failed", "error": "Client unavailable"}
         
         try:
+            # 1. Save Input Asset (Uploaded)
+            self._save_asset(image_bytes, user, "image", "uploaded", f"{user}/inputs", "png", "image/png")
+
+            # 2. Generate Content
             operation = self.client.models.generate_videos(
                 model=settings.VIDEO_MODEL_ID,
                 prompt=prompt,
@@ -98,12 +144,13 @@ class VertexGenerator:
                 config=types.GenerateVideosConfig(aspect_ratio="16:9", fps=24)
             )
             
-            # Handle polling/result
             result = operation.result() if hasattr(operation, 'result') else operation
 
             if hasattr(result, 'generated_videos'):
                 video_bytes = result.generated_videos[0].video.video_bytes
-                return self._process_media(video_bytes, "f{user}/vi", "mp4", "video/mp4")
+                return self._process_media(
+                    video_bytes, f"{user}/vi", "mp4", "video/mp4", user, "video"
+                )
             
             return {"status": "failed", "error": "No video generated"}
         except Exception as e:
