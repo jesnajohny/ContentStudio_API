@@ -38,3 +38,82 @@ class SupabaseService:
         except Exception as e:
             print(f"❌ Supabase Upsert Error: {e}")
             return {"error": str(e)}
+
+    def get_template_filters(self):
+        """
+        Fetches data from 'templates' and returns a dictionary mapping 
+        categories to a list of their associated product types.
+        """
+        if not self.client:
+            return {"error": "Supabase client not available"}
+
+        try:
+            # Fetch both columns
+            response = self.client.table("templates").select("category, product_type").execute()
+            data = response.data
+            
+            # Dictionary to hold distinct sets of product types for each category
+            category_map = {}
+
+            for item in data:
+                cat = item.get("category")
+                prod = item.get("product_type")
+
+                # Ensure both fields exist before processing
+                if cat and prod:
+                    if cat not in category_map:
+                        category_map[cat] = set()
+                    category_map[cat].add(prod)
+            
+            # Convert sets to sorted lists for the final JSON response
+            result = {cat: sorted(list(prods)) for cat, prods in category_map.items()}
+            
+            return result
+
+        except Exception as e:
+            print(f"❌ Supabase Fetch Error: {e}")
+            return {"error": str(e)}
+
+    def get_templates(self, category: str, product_type: str):
+        """
+        Fetches templates filtering by category and product_type.
+        """
+        if not self.client:
+            return {"error": "Supabase client not available"}
+        
+        try:
+            # Query: Select * from templates where category = X and product_type = Y
+            response = self.client.table("templates")\
+                .select("*")\
+                .eq("category", category)\
+                .eq("product_type", product_type)\
+                .execute()
+            
+            return response.data
+        except Exception as e:
+            print(f"❌ Supabase Fetch Error: {e}")
+            return {"error": str(e)}
+        
+    def insert_asset(self, user_id: str, asset_type: str, source: str, storage_path: str, metadata: dict = None):
+        """
+        Inserts a record into the 'assets' table.
+        """
+        if not self.client:
+            print("❌ Supabase client not available for asset insertion")
+            return None
+
+        data = {
+            "user_id": user_id,
+            "type": asset_type,
+            "source": source,
+            "storage_path": storage_path,
+            "metadata": metadata or {}
+        }
+
+        try:
+            response = self.client.table("assets").insert(data).execute()
+            print(f"✅ Asset inserted: {source} {asset_type}")
+            return response.data
+        except Exception as e:
+            print(f"❌ Supabase Insert Asset Error: {e}")
+            return {"error": str(e)}    
