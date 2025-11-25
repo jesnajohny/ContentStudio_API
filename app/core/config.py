@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     GOOGLE_CLOUD_PROJECT: str
     GOOGLE_CLOUD_LOCATION: str = "us-central1"
     GOOGLE_APPLICATION_CREDENTIALS: str = "service_account.json"
+    GOOGLE_CLOUD_API_KEY: str
     
     # Storage Config
     GCS_BUCKET_NAME: str
@@ -20,7 +21,7 @@ class Settings(BaseSettings):
     SUPABASE_KEY: str
     
     # Model Config
-    IMAGE_MODEL_ID: str = "gemini-2.5-flash-image"
+    IMAGE_MODEL_ID: str = "gemini-3-pro-image-preview"
     VIDEO_MODEL_ID: str = "gemini-2.5-flash-image"
 
     class Config:

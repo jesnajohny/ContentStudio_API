@@ -114,4 +114,20 @@ class SupabaseService:
             return response.data
         except Exception as e:
             print(f"❌ Supabase Insert Asset Error: {e}")
+            return {"error": str(e)}
+
+    def get_user_assets(self, user_id: str):
+        """
+        Fetches assets for a specific user from the 'assets' table.
+        """
+        if not self.client:
+            return {"error": "Supabase client not available"}
+
+        try:
+            # Select all columns for the given user_id
+            # You might want to add .order("created_at", desc=True) if that column exists
+            response = self.client.table("assets").select("*").eq("user_id", user_id).execute()
+            return response.data
+        except Exception as e:
+            print(f"❌ Supabase Fetch Assets Error: {e}")
             return {"error": str(e)}    
