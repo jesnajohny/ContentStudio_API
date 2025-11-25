@@ -4,6 +4,7 @@ from app.services.supabase_service import SupabaseService
 from app.services.storage_service import StorageService
 from functools import lru_cache
 from urllib.parse import urlparse
+from typing import Optional
 
 router = APIRouter()
 
@@ -39,11 +40,15 @@ async def text_to_image(
 async def image_to_image(
     prompt: str = Form(...), 
     user: str = Form(...),
-    file: UploadFile = File(...),
+    image_url: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
     service: VertexGenerator = Depends(get_generator)
 ):
-    file_bytes = await file.read()
-    result = service.generate_image_to_image(file_bytes, prompt, user)
+    if file:
+        file_bytes = await file.read()
+    else:
+        file_bytes = None
+    result = service.generate_image_to_image(file_bytes, prompt, user, image_url)
     if "error" in result:
         raise HTTPException(status_code=500, detail=result["error"])
     return result
@@ -52,11 +57,15 @@ async def image_to_image(
 async def image_to_video(
     prompt: str = Form(...), 
     user: str = Form(...),
+    image_url: Optional[str] = Form(None),
     file: UploadFile = File(...),
     service: VertexGenerator = Depends(get_generator)
 ):
-    file_bytes = await file.read()
-    result = service.generate_image_to_video(file_bytes, prompt, user)
+    if file:
+        file_bytes = await file.read()
+    else:
+        file_bytes = None
+    result = service.generate_image_to_video(file_bytes, prompt, user, image_url)
     if "error" in result:
         raise HTTPException(status_code=500, detail=result["error"])
     return result
@@ -144,5 +153,41 @@ async def list_templates(
         parsed = urlparse(image_url)
         temp_data["image_url"] = storage.generate_signed_url(parsed.path.lstrip("/").split("/", 1)[1])        
         results.append(temp_data)
+        
+    return results
+
+@router.get("/assets")
+async def get_user_assets(
+    user_id: str,
+    supabase: SupabaseService = Depends(get_supabase_service),
+    service: VertexGenerator = Depends(get_generator),
+    storage: StorageService = Depends(get_storage_service)
+):
+    # 1. Fetch assets from Supabase
+    assets = supabase.get_user_assets(user_id)
+    
+    if isinstance(assets, dict) and "error" in assets:
+        raise HTTPException(status_code=500, detail=assets["error"])
+    
+    # 2. Process assets to generate signed URLs (Access control)
+    results = []
+    for asset in assets:
+        asset_data = asset.copy()
+        storage_path = asset_data.get("storage_path")
+        
+        # specific logic to handle GCS URLs
+        if storage_path and "storage.googleapis.com" in storage_path:
+            try:
+                parsed = urlparse(storage_path)
+                # URL format: https://storage.googleapis.com/{bucket_name}/{blob_name}
+                # We need to extract {blob_name}
+                path_parts = parsed.path.lstrip("/").split("/", 1)
+                if len(path_parts) > 1:
+                    blob_name = path_parts[1]
+                    asset_data["signed_url"] = storage.generate_signed_url(blob_name)
+            except Exception as e:
+                print(f"⚠️ Failed to generate signed URL for asset {asset.get('id', 'unknown')}: {e}")
+        
+        results.append(asset_data)
         
     return results

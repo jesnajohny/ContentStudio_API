@@ -62,6 +62,31 @@ class StorageService:
         except Exception as e:
             print(f"❌ GCS Download Error for {image_url}: {e}")
             return None
+    
+    def download_image_as_bytes(self, image_url: str) -> bytes:
+        """
+        Downloads image from GCS URL and returns raw bytes.
+        """
+        if not self.client:
+            print("❌ Storage client not available")
+            return None
+        
+        try:
+            # URL structure: https://storage.googleapis.com/{bucket_name}/{blob_name}
+            url_prefix = f"https://storage.googleapis.com/{self.bucket_name}/"
+            
+            if not image_url.startswith(url_prefix):
+                print(f"⚠️ URL {image_url} does not match expected bucket prefix.")
+                return None
+            
+            blob_name = image_url.replace(url_prefix, "")
+            bucket = self.client.bucket(self.bucket_name)
+            blob = bucket.blob(blob_name)
+            
+            return blob.download_as_bytes()
+        except Exception as e:
+            print(f"❌ GCS Download Error for {image_url}: {e}")
+            return None
 
     def generate_signed_url(self, blob_name):
         blob = self.client.bucket(self.bucket_name).blob(blob_name)

@@ -17,11 +17,16 @@ class VertexGenerator:
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = settings.GOOGLE_APPLICATION_CREDENTIALS
         
         try:
+            # self.client = genai.Client(
+            #     vertexai=True,
+            #     project=settings.GOOGLE_CLOUD_PROJECT,
+            #     location=settings.GOOGLE_CLOUD_LOCATION
+            # )
             self.client = genai.Client(
                 vertexai=True,
-                project=settings.GOOGLE_CLOUD_PROJECT,
-                location=settings.GOOGLE_CLOUD_LOCATION
+                api_key=os.environ.get("GOOGLE_CLOUD_API_KEY"),
             )
+
             self.storage = StorageService()
             self.supabase = SupabaseService()
             print(f"✅ Vertex AI Client initialized.")
@@ -29,7 +34,7 @@ class VertexGenerator:
             print(f"❌ Failed to initialize Vertex AI: {e}")
             self.client = None
 
-    def _save_asset(self, data: bytes, user_id: str, asset_type: str, source: str, prefix: str, ext: str, mime: str) -> str:
+    def _save_asset(self, data: bytes, user_id: str, asset_type: str, source: str, prefix: str, ext: str, mime: str, prompt: str = None) -> str:
         """
         Helper to upload file to GCS, extract metadata, and save info to Supabase.
         """
@@ -42,6 +47,8 @@ class VertexGenerator:
 
         # 2. Extract Metadata
         metadata = {"size_bytes": len(data), "format": ext, "mime": mime}
+        if prompt:
+            metadata["prompt"] = prompt
         if asset_type == "image":
             try:
                 with Image.open(io.BytesIO(data)) as img:
@@ -49,7 +56,7 @@ class VertexGenerator:
                     metadata["height"] = img.height
             except Exception as e:
                 print(f"⚠️ Failed to extract image metadata: {e}")
-
+        print(metadata)
         # 3. Insert into Supabase
         self.supabase.insert_asset(
             user_id=user_id,
@@ -61,13 +68,11 @@ class VertexGenerator:
         
         return url
 
-    def _process_media(self, data: bytes, prefix: str, ext: str, mime: str, user: str, asset_type: str) -> dict:
+    def _process_media(self, data: bytes, prefix: str, ext: str, mime: str, user: str, asset_type: str, prompt: str) -> dict:
         try:
             # Save the GENERATED asset to GCS and Supabase
-            url = self._save_asset(data, user, asset_type, "generated", prefix, ext, mime)
+            url = self._save_asset(data, user, asset_type, "generated", prefix, ext, mime, prompt)           
             
-            
-
             parsed = urlparse(url)
             
             response = {"status": "completed", "base_url": url, "signed_url": self.storage.generate_signed_url(parsed.path.lstrip("/").split("/", 1)[1])}
@@ -101,12 +106,20 @@ class VertexGenerator:
         except Exception as e:
             return {"status": "failed", "error": str(e)}
 
-    def generate_image_to_image(self, image_bytes: bytes, prompt: str, user: str) -> dict:
+    def generate_image_to_image(self, image_bytes: bytes, prompt: str, user: str, image_url: str = None) -> dict:
         if not self.client: return {"status": "failed", "error": "Client unavailable"}
 
         try:
             # 1. Save Input Asset (Uploaded)
-            self._save_asset(image_bytes, user, "image", "uploaded", f"{user}/inputs", "png", "image/png")
+            if not image_url:
+                self._save_asset(image_bytes, user, "image", "uploaded", f"{user}/inputs", "png", "image/png")
+            else:
+                print(f"⬇️ Fetching input image from: {image_url}")
+                fetched_bytes = self.storage.download_image_as_bytes(image_url)
+                if fetched_bytes:
+                    image_bytes = fetched_bytes
+                else:
+                    return {"status": "failed", "error": "Failed to download image from provided URL"}
 
             # 2. Generate Content
             image_part = types.Part(
@@ -124,18 +137,26 @@ class VertexGenerator:
                 for part in response.candidates[0].content.parts:
                     if part.inline_data:
                         return self._process_media(
-                            part.inline_data.data, f"{user}/i2i", "png", "image/png", user, "image"
+                            part.inline_data.data, f"{user}/i2i", "png", "image/png", user, "image", prompt
                         )
             return {"status": "failed", "error": "No image generated"}
         except Exception as e:
             return {"status": "failed", "error": str(e)}
 
-    def generate_image_to_video(self, image_bytes: bytes, prompt: str, user: str) -> dict:
+    def generate_image_to_video(self, image_bytes: bytes, prompt: str, user: str, image_url: str = None) -> dict:
         if not self.client: return {"status": "failed", "error": "Client unavailable"}
         
         try:
             # 1. Save Input Asset (Uploaded)
-            self._save_asset(image_bytes, user, "image", "uploaded", f"{user}/inputs", "png", "image/png")
+            if not image_url:
+                self._save_asset(image_bytes, user, "image", "uploaded", f"{user}/inputs", "png", "image/png")
+            else:
+                print(f"⬇️ Fetching input image from: {image_url}")
+                fetched_bytes = self.storage.download_image_as_bytes(image_url)
+                if fetched_bytes:
+                    image_bytes = fetched_bytes
+                else:
+                    return {"status": "failed", "error": "Failed to download image from provided URL"}
 
             # 2. Generate Content
             operation = self.client.models.generate_videos(
@@ -150,7 +171,7 @@ class VertexGenerator:
             if hasattr(result, 'generated_videos'):
                 video_bytes = result.generated_videos[0].video.video_bytes
                 return self._process_media(
-                    video_bytes, f"{user}/vi", "mp4", "video/mp4", user, "video"
+                    video_bytes, f"{user}/vi", "mp4", "video/mp4", user, "video", prompt
                 )
             
             return {"status": "failed", "error": "No video generated"}
