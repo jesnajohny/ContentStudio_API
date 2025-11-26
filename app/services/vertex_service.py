@@ -17,11 +17,6 @@ class VertexGenerator:
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = settings.GOOGLE_APPLICATION_CREDENTIALS
         
         try:
-            # self.client = genai.Client(
-            #     vertexai=True,
-            #     project=settings.GOOGLE_CLOUD_PROJECT,
-            #     location=settings.GOOGLE_CLOUD_LOCATION
-            # )
             self.client = genai.Client(
                 vertexai=True,
                 api_key=os.environ.get("GOOGLE_CLOUD_API_KEY"),
@@ -34,9 +29,10 @@ class VertexGenerator:
             print(f"❌ Failed to initialize Vertex AI: {e}")
             self.client = None
 
-    def _save_asset(self, data: bytes, user_id: str, asset_type: str, source: str, prefix: str, ext: str, mime: str, prompt: str = None) -> str:
+    def _save_asset(self, data: bytes, user_id: str, asset_type: str, source: str, prefix: str, ext: str, mime: str, prompt: str = None, product_id: str = None) -> tuple[str, str]:
         """
         Helper to upload file to GCS, extract metadata, and save info to Supabase.
+        Returns a tuple of (url, asset_id).
         """
         # 1. Upload to GCS
         try:
@@ -49,6 +45,10 @@ class VertexGenerator:
         metadata = {"size_bytes": len(data), "format": ext, "mime": mime}
         if prompt:
             metadata["prompt"] = prompt
+        # Add product_id to metadata if provided
+        if product_id:
+            metadata["product_id"] = product_id
+
         if asset_type == "image":
             try:
                 with Image.open(io.BytesIO(data)) as img:
@@ -57,8 +57,9 @@ class VertexGenerator:
             except Exception as e:
                 print(f"⚠️ Failed to extract image metadata: {e}")
         print(metadata)
+        
         # 3. Insert into Supabase
-        self.supabase.insert_asset(
+        result = self.supabase.insert_asset(
             user_id=user_id,
             asset_type=asset_type,
             source=source,
@@ -66,12 +67,18 @@ class VertexGenerator:
             metadata=metadata
         )
         
-        return url
+        # Extract asset_id from the result
+        asset_id = None
+        if result and isinstance(result, list) and len(result) > 0:
+            asset_id = result[0].get('asset_id')
+        
+        return url, asset_id
 
-    def _process_media(self, data: bytes, prefix: str, ext: str, mime: str, user: str, asset_type: str, prompt: str) -> dict:
+    def _process_media(self, data: bytes, prefix: str, ext: str, mime: str, user: str, asset_type: str, prompt: str, product_id: str = None) -> dict:
         try:
             # Save the GENERATED asset to GCS and Supabase
-            url = self._save_asset(data, user, asset_type, "generated", prefix, ext, mime, prompt)           
+            # Pass product_id to be stored in metadata
+            url, _ = self._save_asset(data, user, asset_type, "generated", prefix, ext, mime, prompt, product_id=product_id)           
             
             parsed = urlparse(url)
             
@@ -99,20 +106,28 @@ class VertexGenerator:
                 for part in response.candidates[0].content.parts:
                     if part.inline_data:
                         # Pass user and asset_type="image"
+                        # Added explicit prompt argument which was missing in original code
                         return self._process_media(
-                            part.inline_data.data, f"{user}/t2i", "png", "image/png", user, "image"
+                            part.inline_data.data, f"{user}/t2i", "png", "image/png", user, "image", prompt
                         )
             return {"status": "failed", "error": "No image generated"}
         except Exception as e:
             return {"status": "failed", "error": str(e)}
 
-    def generate_image_to_image(self, image_bytes: bytes, prompt: str, user: str, image_url: str = None) -> dict:
+    def generate_image_to_image(self, image_bytes: bytes, prompt: str, user: str, image_url: str = None, product_id: str = None) -> dict:
         if not self.client: return {"status": "failed", "error": "Client unavailable"}
+
+        # Determine which ID to associate with the output
+        current_product_id = product_id
 
         try:
             # 1. Save Input Asset (Uploaded)
             if not image_url:
-                self._save_asset(image_bytes, user, "image", "uploaded", f"{user}/inputs", "png", "image/png")
+                # Capture the asset_id of the uploaded input
+                _, asset_id = self._save_asset(image_bytes, user, "image", "uploaded", f"{user}/inputs", "png", "image/png")
+                # If no product_id was provided in request, use the uploaded asset's ID
+                if not current_product_id:
+                    current_product_id = asset_id
             else:
                 print(f"⬇️ Fetching input image from: {image_url}")
                 fetched_bytes = self.storage.download_image_as_bytes(image_url)
@@ -136,20 +151,29 @@ class VertexGenerator:
             if response.candidates and response.candidates[0].content.parts:
                 for part in response.candidates[0].content.parts:
                     if part.inline_data:
+                        # Pass current_product_id to be saved in generated image metadata
                         return self._process_media(
-                            part.inline_data.data, f"{user}/i2i", "png", "image/png", user, "image", prompt
+                            part.inline_data.data, f"{user}/i2i", "png", "image/png", user, "image", prompt, product_id=current_product_id
                         )
             return {"status": "failed", "error": "No image generated"}
         except Exception as e:
             return {"status": "failed", "error": str(e)}
 
-    def generate_image_to_video(self, image_bytes: bytes, prompt: str, user: str, image_url: str = None) -> dict:
+    def generate_image_to_video(self, image_bytes: bytes, prompt: str, user: str, image_url: str = None, product_id: str = None) -> dict:
         if not self.client: return {"status": "failed", "error": "Client unavailable"}
+        
+        # Determine which ID to associate with the output
+        current_product_id = product_id
         
         try:
             # 1. Save Input Asset (Uploaded)
             if not image_url:
-                self._save_asset(image_bytes, user, "image", "uploaded", f"{user}/inputs", "png", "image/png")
+                # Capture the asset_id of the uploaded input
+                _, asset_id = self._save_asset(image_bytes, user, "image", "uploaded", f"{user}/inputs", "png", "image/png")
+                
+                # If no product_id was provided in request, use the uploaded asset's ID
+                if not current_product_id:
+                    current_product_id = asset_id
             else:
                 print(f"⬇️ Fetching input image from: {image_url}")
                 fetched_bytes = self.storage.download_image_as_bytes(image_url)
@@ -170,8 +194,9 @@ class VertexGenerator:
 
             if hasattr(result, 'generated_videos'):
                 video_bytes = result.generated_videos[0].video.video_bytes
+                # Pass current_product_id to be saved in generated video metadata
                 return self._process_media(
-                    video_bytes, f"{user}/vi", "mp4", "video/mp4", user, "video", prompt
+                    video_bytes, f"{user}/vi", "mp4", "video/mp4", user, "video", prompt, product_id=current_product_id
                 )
             
             return {"status": "failed", "error": "No video generated"}

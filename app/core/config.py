@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     SUPABASE_KEY: str
     
     # Model Config
+    #IMAGE_MODEL_ID: str = "gemini-3-pro-image-preview"
     IMAGE_MODEL_ID: str = "gemini-3-pro-image-preview"
     VIDEO_MODEL_ID: str = "gemini-2.5-flash-image"
 

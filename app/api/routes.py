@@ -41,6 +41,7 @@ async def image_to_image(
     prompt: str = Form(...), 
     user: str = Form(...),
     image_url: Optional[str] = Form(None),
+    product_id: Optional[str] = Form(None), # Added optional product_id
     file: Optional[UploadFile] = File(None),
     service: VertexGenerator = Depends(get_generator)
 ):
@@ -48,7 +49,8 @@ async def image_to_image(
         file_bytes = await file.read()
     else:
         file_bytes = None
-    result = service.generate_image_to_image(file_bytes, prompt, user, image_url)
+    # Pass product_id to the service
+    result = service.generate_image_to_image(file_bytes, prompt, user, image_url, product_id=product_id)
     if "error" in result:
         raise HTTPException(status_code=500, detail=result["error"])
     return result
@@ -58,6 +60,7 @@ async def image_to_video(
     prompt: str = Form(...), 
     user: str = Form(...),
     image_url: Optional[str] = Form(None),
+    product_id: Optional[str] = Form(None), # Added optional product_id
     file: UploadFile = File(...),
     service: VertexGenerator = Depends(get_generator)
 ):
@@ -65,7 +68,8 @@ async def image_to_video(
         file_bytes = await file.read()
     else:
         file_bytes = None
-    result = service.generate_image_to_video(file_bytes, prompt, user, image_url)
+    # Pass product_id to the service
+    result = service.generate_image_to_video(file_bytes, prompt, user, image_url, product_id=product_id)
     if "error" in result:
         raise HTTPException(status_code=500, detail=result["error"])
     return result
