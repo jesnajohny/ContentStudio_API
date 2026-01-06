@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     GOOGLE_CLOUD_LOCATION: str = "us-central1"
     GOOGLE_APPLICATION_CREDENTIALS: str = "service_account.json"
     GOOGLE_CLOUD_API_KEY: str
+
+    # Pub/Sub Config
+    PUBSUB_TOPIC_NAME: str = "ImageGenerationRequests"
     
     # Storage Config
     GCS_BUCKET_NAME: str

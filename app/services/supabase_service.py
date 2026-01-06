@@ -92,7 +92,7 @@ class SupabaseService:
             print(f"❌ Supabase Fetch Error: {e}")
             return {"error": str(e)}
         
-    def insert_asset(self, user_id: str, asset_type: str, source: str, storage_path: str, metadata: dict = None):
+    def insert_asset(self, user_id: str, asset_type: str, source: str, storage_path: str,  metadata: dict = None, product_id: str = None ):
         """
         Inserts a record into the 'assets' table.
         """
@@ -105,7 +105,8 @@ class SupabaseService:
             "type": asset_type,
             "source": source,
             "storage_path": storage_path,
-            "metadata": metadata or {}
+            "metadata": metadata or {},
+            "product_id": product_id
         }
 
         try:
@@ -130,4 +131,35 @@ class SupabaseService:
             return response.data
         except Exception as e:
             print(f"❌ Supabase Fetch Assets Error: {e}")
-            return {"error": str(e)}    
+            return {"error": str(e)}
+        
+    # --- NEW METHOD ---
+    def insert_product(self, product_name: str, category: str, product_type: str, product_hash: str = None) -> str:
+        """
+        Inserts a new product into the 'products' table and returns the generated product_id.
+        """
+        if not self.client:
+            print("❌ Supabase client not available for product insertion")
+            return None
+
+        data = {
+            "product_name": product_name,
+            "category": category,
+            "product_type": product_type,
+            "product_hash": product_hash
+        }
+
+        print(f"product details : { data}")
+
+        try:
+            # Execute insert and return data to get the ID
+            response = self.client.table("products").insert(data).execute()
+            
+            # Extract product_id from the response
+            if response.data and len(response.data) > 0:
+                return response.data[0].get('product_id')
+            
+            return None
+        except Exception as e:
+            print(f"❌ Supabase Insert Product Error: {e}")
+            return None

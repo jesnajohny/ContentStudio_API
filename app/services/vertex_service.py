@@ -158,6 +158,44 @@ class VertexGenerator:
             return {"status": "failed", "error": "No image generated"}
         except Exception as e:
             return {"status": "failed", "error": str(e)}
+        
+    def generate_image_variations(self, prompt: str, user: str, image_url: str, product_id: str) -> dict:
+        if not self.client: return {"status": "failed", "error": "Client unavailable"}
+
+        # Determine which ID to associate with the output
+        current_product_id = product_id
+
+        try:
+
+            print(f"⬇️ Fetching input image from: {image_url}")
+            fetched_bytes = self.storage.download_image_as_bytes(image_url)
+            if fetched_bytes:
+                image_bytes = fetched_bytes
+            else:
+                return {"status": "failed", "error": "Failed to download image from provided URL"}
+
+            # 2. Generate Content
+            image_part = types.Part(
+                inline_data=types.Blob(mime_type="image/png", data=image_bytes)
+            )
+            text_part = types.Part(text=prompt)
+
+            response = self.client.models.generate_content(
+                model=settings.IMAGE_MODEL_ID,
+                contents=[image_part, text_part],
+                config=types.GenerateContentConfig(response_modalities=["IMAGE"])
+            )
+
+            if response.candidates and response.candidates[0].content.parts:
+                for part in response.candidates[0].content.parts:
+                    if part.inline_data:
+                        # Pass current_product_id to be saved in generated image metadata
+                        return self._process_media(
+                            part.inline_data.data, f"{user}/i2i", "png", "image/png", user, "image", prompt, product_id=current_product_id
+                        )
+            return {"status": "failed", "error": "No image generated"}
+        except Exception as e:
+            return {"status": "failed", "error": str(e)}
 
     def generate_image_to_video(self, image_bytes: bytes, prompt: str, user: str, image_url: str = None, product_id: str = None) -> dict:
         if not self.client: return {"status": "failed", "error": "Client unavailable"}

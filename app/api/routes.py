@@ -2,9 +2,12 @@ from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from app.services.vertex_service import VertexGenerator
 from app.services.supabase_service import SupabaseService
 from app.services.storage_service import StorageService
+from app.services.pubsub_service import PubSubService
+from app.services.helper_service import HelperService
 from functools import lru_cache
 from urllib.parse import urlparse
-from typing import Optional
+from typing import Optional, List
+import random
 
 router = APIRouter()
 
@@ -22,6 +25,14 @@ def get_supabase_service():
 @lru_cache()
 def get_storage_service():
     return StorageService()
+
+@lru_cache()
+def get_pubsub_service():
+    return PubSubService()
+
+@lru_cache()
+def get_helper_service():
+    return HelperService()
 
 # --- Existing Routes (Text/Image Generation) ---
 @router.post("/text-to-image")
@@ -51,6 +62,20 @@ async def image_to_image(
         file_bytes = None
     # Pass product_id to the service
     result = service.generate_image_to_image(file_bytes, prompt, user, image_url, product_id=product_id)
+    if "error" in result:
+        raise HTTPException(status_code=500, detail=result["error"])
+    return result
+
+@router.post("/image-variations")
+async def image_to_image(
+    prompt: str = Form(...), 
+    user: str = Form(...),
+    image_url: Optional[str] = Form(None),
+    product_id: Optional[str] = Form(None), # Added optional product_id
+    service: VertexGenerator = Depends(get_generator)
+):
+
+    result = service.generate_image_variations(prompt, user, image_url, product_id)
     if "error" in result:
         raise HTTPException(status_code=500, detail=result["error"])
     return result
@@ -195,3 +220,72 @@ async def get_user_assets(
         results.append(asset_data)
         
     return results
+
+@router.post("/generate")
+async def generate(
+    prompt: str = Form(...),
+    user: str = Form(...),
+    category: str = Form(...),
+    product_type: str = Form(...),
+    generation_type: str = Form(...),
+    product_name: Optional[str] = Form(None),
+    product_images: Optional[List[UploadFile]] = File(None),
+    reference_images: Optional[List[UploadFile]] = File(None),
+    product_urls: Optional[List[str]] = Form(None),
+    referance_urls: Optional[List[str]] = Form(None),
+    supabase: SupabaseService = Depends(get_supabase_service),
+    pubsub: PubSubService = Depends(get_pubsub_service),
+    helper: HelperService = Depends(get_helper_service)
+):
+    """
+    Endpoint to handle generation requests.
+    - Uploads files to GCS via HelperService.
+    - Saves asset metadata to Supabase via HelperService.
+    - Aggregates all URLs.
+    - Publishes job to Pub/Sub.
+    """
+
+    print(f"inserting product name : {product_name}")
+    product_id = ""
+    if not product_name:        
+        product_name = f"{category}_{product_type}_{random.randint(10000, 99999)}"
+        print(f"inserting product name : {product_name}")
+    if product_images:
+        print(f"inserting product")
+        product_id = supabase.insert_product(product_name, category, product_type)
+        print(f"product id : {product_id}")
+    
+    # 1. Process Uploaded Files
+    uploaded_product_urls =  await helper.process_uploads(product_images, user, product_id) if product_images else product_urls
+    uploaded_reference_urls = await helper.process_uploads(reference_images, user) if  reference_images  else referance_urls if referance_urls else []
+
+    print(f"uploaded_product_urls : {uploaded_product_urls}")
+    print(f"uploaded_reference_urls : {uploaded_reference_urls}")
+    
+    # 2. Combine with provided URLs (handle None types)
+    final_product_urls =  uploaded_product_urls
+    final_reference_urls =  uploaded_reference_urls
+    
+    # 3. Construct Pub/Sub Payload
+    payload = {
+        "product_urls": final_product_urls,
+        "reference_urls": final_reference_urls, 
+        "prompt": prompt,
+        "user": user,
+        "generation_type": generation_type
+    }
+    
+    # 4. Publish to Pub/Sub
+    try:
+        message_id = pubsub.publish_message(payload)
+        
+        if not message_id:
+             raise HTTPException(status_code=500, detail="Failed to publish to Pub/Sub (Client unavailable)")
+             
+        return {
+            "status": "queued",
+            "message_id": message_id,
+            "data": payload
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Pub/Sub Error: {str(e)}")

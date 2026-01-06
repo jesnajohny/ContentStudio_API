@@ -5,3 +5,4 @@ fastapi
 uvicorn
 python-multipart
 supabase
+google-cloud-pubsub
